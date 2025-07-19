@@ -1,95 +1,85 @@
 import express from "express";
 import { Client as HazelcastClient } from "hazelcast-client";
-// import { DistributedMap } from "hazelcast-client/lib/DistributedMap";
+import { Kafka } from "kafkajs";
 
 // --- 1. DEFINE CONSTANTS ---
 const PORT = 3001;
 const COOLDOWN_SECONDS = 60;
-const USER_COOLDOWNS_MAP_NAME = "user-cooldowns"; // The name for our map in Hazelcast
+const USER_COOLDOWNS_MAP_NAME = "user-cooldowns";
+const KAFKA_BROKER = "localhost:9092";
+const KAFKA_TOPIC = "pixel-placed-topic";
 
 // --- 2. SETUP THE EXPRESS APP ---
 const app = express();
 app.use(express.json());
 
-// --- 3. CONNECT TO HAZELCAST ---
-
+// --- 3. MAIN FUNCTION ---
 async function main() {
     try {
-        console.log("INFO: Attempting to connect to Hazelcast...");
-        // Configure and create the Hazelcast client
+        // --- CONNECT TO HAZELCAST ---
+        console.log("INFO: Connecting to Hazelcast...");
         const hazelcastClient = await HazelcastClient.newHazelcastClient({
             clusterName: "dev-cluster",
-            network: {
-                clusterMembers: ["localhost:5701"], // Connect to the port we exposed in Docker
-            },
+            network: { clusterMembers: ["localhost:5701"] },
         });
-        console.log("INFO: Successfully connected to Hazelcast!");
-
-        // Get the distributed map where we'll store cooldowns.
-        // This is the Hazelcast equivalent of Ignite's "cache".
         const cooldownsMap = await hazelcastClient.getMap<string, number>(
             USER_COOLDOWNS_MAP_NAME
         );
+        console.log("INFO: Successfully connected to Hazelcast!");
 
-        // --- 4. DEFINE API ENDPOINTS ---
+        // --- CONNECT TO KAFKA ---
+        const kafka = new Kafka({
+            clientId: "cooldown-service",
+            brokers: [KAFKA_BROKER],
+        });
+        const consumer = kafka.consumer({ groupId: "cooldown-manager-group" });
+        await consumer.connect();
+        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
+        console.log("INFO: Connected to Kafka and subscribed to topic.");
 
-        /**
-         * GET /internal/cooldown/:userId
-         * Checks if a user is currently on cooldown.
-         */
+        // --- KAFKA CONSUMER LOGIC ---
+        // This is the new, reactive part of our service.
+        await consumer.run({
+            eachMessage: async ({ message }) => {
+                if (!message.value) return;
+
+                const { userId } = JSON.parse(message.value.toString());
+                if (!userId) return;
+
+                // When a pixel is placed, automatically start the cooldown for that user.
+                const newExpiryTimestamp = Date.now() + COOLDOWN_SECONDS * 1000;
+                await cooldownsMap.put(userId, newExpiryTimestamp);
+
+                console.log(
+                    `INFO: Cooldown started for user ${userId} due to PIXEL_PLACED event.`
+                );
+            },
+        });
+
+        // --- DEFINE API ENDPOINTS ---
+        // The Canvas Service still needs to CHECK the cooldown, so the GET endpoint remains.
         app.get("/internal/cooldown/:userId", async (req, res) => {
             const { userId } = req.params;
-
-            // Get the user's cooldown expiry timestamp from the Hazelcast map.
             const cooldownExpiry = await cooldownsMap.get(userId);
 
-            if (cooldownExpiry === null || cooldownExpiry === undefined) {
-                // If there's no entry, they are not on cooldown.
+            if (!cooldownExpiry) {
                 return res.json({ onCooldown: false });
             }
 
-            // Compare the stored expiry time with the current time.
             const isOnCooldown = Date.now() < cooldownExpiry;
-
             return res.json({ onCooldown: isOnCooldown });
         });
 
-        /**
-         * POST /internal/cooldown/:userId
-         * Starts the cooldown period for a user.
-         */
-        app.post("/internal/cooldown/:userId", async (req, res) => {
-            const { userId } = req.params;
+        // The POST endpoint is no longer needed! It has been removed.
 
-            // Calculate when the cooldown will end.
-            const newExpiryTimestamp = Date.now() + COOLDOWN_SECONDS * 1000;
-
-            // Store the new expiry timestamp in the Hazelcast map with the userId as the key.
-            await cooldownsMap.put(userId, newExpiryTimestamp);
-
-            console.log(
-                `INFO: Cooldown started for user ${userId}. Expires at ${new Date(
-                    newExpiryTimestamp
-                ).toLocaleTimeString()}`
-            );
-
-            return res.status(200).json({
-                message: "Cooldown started.",
-                expiresAt: newExpiryTimestamp,
-            });
-        });
-
-        // --- 5. START THE SERVER ---
+        // --- START THE SERVER ---
         app.listen(PORT, () => {
             console.log(
                 `INFO: Cooldown Service running on http://localhost:${PORT}`
             );
         });
     } catch (err) {
-        console.error(
-            "ERROR: Failed to connect to Hazelcast or start server:",
-            err
-        );
+        console.error("ERROR: Failed to start Cooldown Service:", err);
         process.exit(1);
     }
 }
