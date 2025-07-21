@@ -6,7 +6,6 @@ import { Kafka } from "kafkajs";
 const PORT = 3001;
 const COOLDOWN_SECONDS = 60;
 const USER_COOLDOWNS_MAP_NAME = "user-cooldowns";
-const CANVAS_STATE_MAP_NAME = "canvas-state";
 const HAZELCAST_CLUSTER_MEMBERS = ["localhost:5701"];
 const KAFKA_BROKER = "localhost:9092";
 const KAFKA_TOPIC = "pixel-placed-topic";
@@ -29,66 +28,39 @@ async function main() {
             clusterName: "dev-cluster",
             network: { clusterMembers: ["localhost:5701"] },
         });
-        const canvasState = await hazelcastClient.getMap<string, PixelData>(
-            CANVAS_STATE_MAP_NAME
-        );
         const cooldownsMap = await hazelcastClient.getMap<string, number>(
             USER_COOLDOWNS_MAP_NAME
         );
         console.log("INFO: Successfully connected to Hazelcast!");
 
-        const listeners = {
-            added: (event: EntryEvent<string, PixelData>) => {
-                cooldownsMap.put(
-                    event.value.author,
-                    Date.now() + COOLDOWN_SECONDS * 1000
-                );
-                console.log(
-                    `INFO: Cooldown started for user ${event.value.author} due to PIXEL_PLACED event.`
-                );
-            },
-            updated: (event: EntryEvent<string, PixelData>) => {
-                cooldownsMap.put(
-                    event.value.author,
-                    Date.now() + COOLDOWN_SECONDS * 1000
-                );
-                console.log(
-                    `INFO: Cooldown updated for user ${event.value.author} due to PIXEL_PLACED event.`
-                );
-            },
-        };
-
-        await canvasState.addEntryListener(listeners, undefined, true);
-        console.log("INFO: Attached Entry Listener to canvas state map.");
-
         // // --- CONNECT TO KAFKA ---
-        // const kafka = new Kafka({
-        //     clientId: "cooldown-service",
-        //     brokers: [KAFKA_BROKER],
-        // });
-        // const consumer = kafka.consumer({ groupId: "cooldown-manager-group" });
-        // await consumer.connect();
-        // await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
-        // console.log("INFO: Connected to Kafka and subscribed to topic.");
+        const kafka = new Kafka({
+            clientId: "cooldown-service",
+            brokers: [KAFKA_BROKER],
+        });
+        const consumer = kafka.consumer({ groupId: "cooldown-manager-group" });
+        await consumer.connect();
+        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
+        console.log("INFO: Connected to Kafka and subscribed to topic.");
 
-        // // --- KAFKA CONSUMER LOGIC ---
-        // // This is the new, reactive part of our service.
-        // await consumer.run({
-        //     eachMessage: async ({ message }) => {
-        //         if (!message.value) return;
+        // --- KAFKA CONSUMER LOGIC ---
+        // This is the new, reactive part of our service.
+        await consumer.run({
+            eachMessage: async ({ message }) => {
+                if (!message.value) return;
 
-        //         const { userId } = JSON.parse(message.value.toString());
-        //         if (!userId) return;
+                const { userId } = JSON.parse(message.value.toString());
+                if (!userId) return;
 
-        //         // When a pixel is placed, automatically start the cooldown for that user.
-        //         const newExpiryTimestamp = Date.now() + COOLDOWN_SECONDS * 1000;
-        //         await cooldownsMap.put(userId, newExpiryTimestamp);
+                // When a pixel is placed, automatically start the cooldown for that user.
+                const newExpiryTimestamp = Date.now() + COOLDOWN_SECONDS * 1000;
+                await cooldownsMap.put(userId, newExpiryTimestamp);
 
-        //         console.log(
-        //             `INFO: Cooldown started for user ${userId} due to PIXEL_PLACED event.`
-        //         );
-        //     },
-        // });
+                console.log(
+                    `INFO: Cooldown started for user ${userId} due to PIXEL_PLACED event.`
+                );
+            },
+        });
 
         // --- DEFINE API ENDPOINTS ---
         // The Canvas Service still needs to CHECK the cooldown, so the GET endpoint remains.

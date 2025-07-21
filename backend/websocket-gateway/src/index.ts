@@ -1,17 +1,11 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import {
-    Client as HazelcastClient,
-    EntryEvent,
-    EntryEventListener,
-    MapListener,
-} from "hazelcast-client";
+import { Kafka } from "kafkajs";
 
 // --- 1. DEFINE CONSTANTS ---
 const PORT = 3003;
-const HAZELCAST_CLUSTER_MEMBERS = ["localhost:5701"];
-const CANVAS_STATE_MAP_NAME = "canvas-state";
+const KAFKA_TOPIC = "pixel-placed-topic";
 
 // --- 2. MAIN FUNCTION ---
 async function main() {
@@ -27,36 +21,28 @@ async function main() {
     });
     console.log("Socket.IO server created.");
 
-    // --- CONNECT TO HAZELCAST ---
-    const hazelcastClient = await HazelcastClient.newHazelcastClient({
-        clusterName: "dev-cluster",
-        network: { clusterMembers: HAZELCAST_CLUSTER_MEMBERS },
+    // --- CONNECT TO KAFKA ---
+    const kafka = new Kafka({
+        clientId: "websocket-gateway",
+        brokers: ["localhost:9092"],
     });
-    const canvasStateMap = await hazelcastClient.getMap<string, string>(
-        CANVAS_STATE_MAP_NAME
-    );
-    console.log("✅ Connected to Hazelcast.");
+    const consumer = kafka.consumer({ groupId: "websocket-group" });
+    await consumer.connect();
+    await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
+    console.log("INFO: ✅ Connected to Kafka.");
 
-    // --- SETUP HAZELCAST ENTRY LISTENER ---
-    // This is the core of the new logic. We listen for changes directly on the map.
-    const listener: MapListener<string, string> = {
-        // We only care when a new pixel is added or an existing one is updated.
-        added: (event: EntryEvent<string, string>) => {
-            console.log(
-                `📢 [Hazelcast Listener] New pixel added: ${event.key}`
-            );
-            const [x, y] = event.key.split(":").map(Number);
-            io.emit("pixel-update", { x, y, color: event.value });
-        },
-        updated: (event: EntryEvent<string, string>) => {
-            console.log(`📢 [Hazelcast Listener] Pixel updated: ${event.key}`);
-            const [x, y] = event.key.split(":").map(Number);
-            io.emit("pixel-update", { x, y, color: event.value });
-        },
-    };
+    consumer.run({
+        eachMessage: async ({ message }) => {
+            if (!message.value) return;
 
-    await canvasStateMap.addEntryListener(listener, undefined, true);
-    console.log("✅ Attached Entry Listener to canvas state map.");
+            const pixelData = JSON.parse(message.value.toString());
+            console.log("INFO: New pixel data received:", pixelData);
+
+            // Emit the pixel data to all connected WebSocket clients
+            io.emit("pixel-placed", pixelData);
+            console.log("INFO: Emitted 'pixel-placed' event to all clients.");
+        },
+    });
 
     // --- SOCKET.IO CONNECTION HANDLING ---
     io.on("connection", (socket) => {

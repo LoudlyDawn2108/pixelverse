@@ -9,11 +9,7 @@ import { IMap } from "hazelcast-client";
 const KAFKA_TOPIC = "pixel-placed-topic";
 
 // This function creates and returns the Express router
-export function canvasRouter(
-    producer: Producer,
-    canvasState: CanvasStateMap,
-    cooldownsMap: IMap<string, number>
-) {
+export function canvasRouter(producer: Producer, canvasState: CanvasStateMap) {
     const router = Router();
 
     /**
@@ -32,10 +28,6 @@ export function canvasRouter(
             }
             const userId = req.user.userId; // Get userId from the token payload
             const username = req.user.username; // Get username for logging
-            const pixelData = {
-                color: color,
-                author: username,
-            };
 
             // Basic validation
             if (typeof x !== "number" || typeof y !== "number" || !color) {
@@ -47,24 +39,22 @@ export function canvasRouter(
             try {
                 // 1. Check Cooldown Status
                 console.log(`INFO: Checking cooldown for user ${userId}...`);
-                const cooldownExpiry = await cooldownsMap.get(userId!);
-                if (cooldownExpiry && Date.now() < cooldownExpiry) {
-                    return res
-                        .status(429)
-                        .json({ message: "You are on a cooldown." });
+                const cooldownResponse = await axios.get(
+                    `http://localhost:3001/internal/cooldown/${userId}`
+                );
+
+                if (cooldownResponse.data.onCooldown) {
+                    console.log(`User ${userId} is on cooldown.`);
+                    return res.status(429).json({
+                        message: "You are on a cooldown. Please wait.",
+                    });
                 }
                 console.log(`INFO: User ${userId} is not on cooldown.`);
 
-                // 2. Publish to the "Fast Lane" - Write to Hazelcast
-                const pixelKey = `${x}:${y}`;
-                await canvasState.put(pixelKey, pixelData);
-                console.log(
-                    `INFO: [Hazelcast] Updated canvas state: ${pixelKey} -> }`,
-                    pixelData
-                );
-
-                // 3. Publish to the "Durable Log" - Write to Kafka for persistence
-                const eventPayload = { userId, x, y, color };
+                // 2. Publish PIXEL_PLACED Event to Kafka
+                // The service does NOT update its own state directly. It publishes an event.
+                // The consumer (in index.ts) will pick it up and update the state.
+                const eventPayload = { userId, username, x, y, color };
                 await producer.send({
                     topic: KAFKA_TOPIC,
                     messages: [
