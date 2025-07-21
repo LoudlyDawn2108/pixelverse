@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>PixelVerse Test Client</title>
+    </head>
+    <body>
+        <h1>PixelVerse Real-Time Test Client</h1>
+        <p>Open the browser's developer console (F12) to see updates.</p>
+        <div id="updates"></div>
+
+        <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+        <script>
+            const socket = io("http://localhost:3003"); // Connect to our gateway
+
+            socket.on("connect", () => {
+                console.log("✅ Connected to WebSocket Gateway!", socket.id);
+            });
+
+            // This is the listener for our custom event
+            socket.on("pixel-update", (data) => {
+                console.log("🎨 PIXEL UPDATE RECEIVED:", data);
+                document.getElementById(
+                    "updates"
+                ).innerHTML += `<p>Pixel at (${data.x}, ${data.y}) changed to <span style="color:${data.color};">${data.color}</span></p>`;
+            });
+
+            socket.on("disconnect", () => {
+                console.log("❌ Disconnected from WebSocket Gateway.");
+            });
+        </script>
+    </body>
+</html>

@@ -6,6 +6,7 @@ import { Kafka } from "kafkajs";
 const PORT = 3001;
 const COOLDOWN_SECONDS = 60;
 const USER_COOLDOWNS_MAP_NAME = "user-cooldowns";
+const HAZELCAST_CLUSTER_MEMBERS = ["localhost:5701"];
 const KAFKA_BROKER = "localhost:9092";
 const KAFKA_TOPIC = "pixel-placed-topic";
 
@@ -69,8 +70,6 @@ async function main() {
             const isOnCooldown = Date.now() < cooldownExpiry;
             return res.json({ onCooldown: isOnCooldown });
         });
-
-        // The POST endpoint is no longer needed! It has been removed.
 
         // --- START THE SERVER ---
         app.listen(PORT, () => {

@@ -10,6 +10,7 @@ const KAFKA_BROKER = "localhost:9092";
 const KAFKA_TOPIC = "pixel-placed-topic";
 const HAZELCAST_CLUSTER_MEMBERS = ["localhost:5701"];
 const CANVAS_STATE_MAP_NAME = "canvas-state";
+const USER_COOLDOWNS_MAP_NAME = "user-cooldowns";
 
 // --- 2. DEFINE A GLOBAL TYPE FOR OUR CANVAS STATE ---
 // This helps ensure type safety across our application
@@ -25,6 +26,9 @@ async function main() {
     });
     const canvasState = await hazelcastClient.getMap<string, string>(
         CANVAS_STATE_MAP_NAME
+    );
+    const cooldownsMap = await hazelcastClient.getMap<string, number>(
+        USER_COOLDOWNS_MAP_NAME
     );
     console.log("INFO: Connected to Hazelcast and got canvas state map.");
 
@@ -66,7 +70,7 @@ async function main() {
     const app = express();
     app.use(express.json());
     // Pass our connected clients to the routes
-    app.use("/api/canvas", canvasRouter(producer, canvasState));
+    app.use("/api/canvas", canvasRouter(producer, canvasState, cooldownsMap));
 
     // --- START SERVER ---
     app.listen(PORT, () => {

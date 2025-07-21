@@ -3,12 +3,17 @@ import { Producer } from "kafkajs";
 import { authMiddleware, AuthenticatedRequest } from "./auth.middleware";
 import axios from "axios";
 import { CanvasStateMap } from "./index";
+import { IMap } from "hazelcast-client";
 
 // The topic we publish our events to
 const KAFKA_TOPIC = "pixel-placed-topic";
 
 // This function creates and returns the Express router
-export function canvasRouter(producer: Producer, canvasState: CanvasStateMap) {
+export function canvasRouter(
+    producer: Producer,
+    canvasState: CanvasStateMap,
+    cooldownsMap: IMap<string, number>
+) {
     const router = Router();
 
     /**
@@ -32,42 +37,40 @@ export function canvasRouter(producer: Producer, canvasState: CanvasStateMap) {
 
             try {
                 // 1. Check Cooldown Status
-                console.log(`Checking cooldown for user ${userId}...`);
-                const cooldownResponse = await axios.get(
-                    `http://localhost:3001/internal/cooldown/${userId}`
+                console.log(`INFO: Checking cooldown for user ${userId}...`);
+                const cooldownExpiry = await cooldownsMap.get(userId!);
+                if (cooldownExpiry && Date.now() < cooldownExpiry) {
+                    return res
+                        .status(429)
+                        .json({ message: "You are on a cooldown." });
+                }
+                console.log(`INFO: User ${userId} is not on cooldown.`);
+
+                // 2. Publish to the "Fast Lane" - Write to Hazelcast
+                const pixelKey = `${x}:${y}`;
+                await canvasState.put(pixelKey, color);
+                console.log(
+                    `INFO: [Hazelcast] Updated canvas state: ${pixelKey} -> ${color}`
                 );
 
-                if (cooldownResponse.data.onCooldown) {
-                    console.log(`User ${userId} is on cooldown.`);
-                    return res.status(429).json({
-                        message: "You are on a cooldown. Please wait.",
-                    });
-                }
-                console.log(`User ${userId} is not on cooldown.`);
-
-                // 2. Publish PIXEL_PLACED Event to Kafka
-                // The service does NOT update its own state directly. It publishes an event.
-                // The consumer (in index.ts) will pick it up and update the state.
+                // 3. Publish to the "Durable Log" - Write to Kafka for persistence
                 const eventPayload = { userId, x, y, color };
                 await producer.send({
                     topic: KAFKA_TOPIC,
-                    messages: [{ value: JSON.stringify(eventPayload) }],
+                    messages: [
+                        {
+                            value: JSON.stringify(eventPayload),
+                            timestamp: String(Date.now()),
+                        },
+                    ],
                 });
-                console.log(
-                    `📤 Published PIXEL_PLACED event to Kafka:`,
-                    eventPayload
-                );
-
-                // 3. We don't need to make a separate call to the Cooldown Service to START
-                // the cooldown. We will have the Cooldown Service itself listen for the
-                // PIXEL_PLACED event. This is a more robust, event-driven approach.
-                // (We will add this functionality to the Cooldown Service later).
+                console.log(`INFO: [Kafka] Logged PIXEL_PLACED event.`);
 
                 return res
                     .status(202)
                     .json({ message: "Pixel placement request accepted." });
             } catch (error) {
-                console.error("Error placing pixel:", error);
+                console.error("ERROR: Error placing pixel:", error);
                 return res
                     .status(500)
                     .json({ message: "Internal server error." });
@@ -89,7 +92,7 @@ export function canvasRouter(producer: Producer, canvasState: CanvasStateMap) {
 
             res.json(canvasData);
         } catch (error) {
-            console.error("Error fetching canvas state:", error);
+            console.error("ERROR: Error fetching canvas state:", error);
             res.status(500).json({ message: "Failed to fetch canvas state." });
         }
     });
