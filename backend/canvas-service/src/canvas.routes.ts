@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Producer } from "kafkajs";
 import { authMiddleware, AuthenticatedRequest } from "./auth.middleware";
 import axios from "axios";
-import { CanvasStateMap } from "./index";
+import { type CanvasStateMap, type PixelData } from "./index";
 import { IMap } from "hazelcast-client";
 
 // The topic we publish our events to
@@ -26,7 +26,16 @@ export function canvasRouter(
         authMiddleware,
         async (req: AuthenticatedRequest, res) => {
             const { x, y, color } = req.body;
-            const userId = req.user?.userId; // Get userId from the token payload
+
+            if (req.user === undefined) {
+                throw new Error("Auth middleware did not set req.user");
+            }
+            const userId = req.user.userId; // Get userId from the token payload
+            const username = req.user.username; // Get username for logging
+            const pixelData = {
+                color: color,
+                author: username,
+            };
 
             // Basic validation
             if (typeof x !== "number" || typeof y !== "number" || !color) {
@@ -48,9 +57,10 @@ export function canvasRouter(
 
                 // 2. Publish to the "Fast Lane" - Write to Hazelcast
                 const pixelKey = `${x}:${y}`;
-                await canvasState.put(pixelKey, color);
+                await canvasState.put(pixelKey, pixelData);
                 console.log(
-                    `INFO: [Hazelcast] Updated canvas state: ${pixelKey} -> ${color}`
+                    `INFO: [Hazelcast] Updated canvas state: ${pixelKey} -> }`,
+                    pixelData
                 );
 
                 // 3. Publish to the "Durable Log" - Write to Kafka for persistence

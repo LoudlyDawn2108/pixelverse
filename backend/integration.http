@@ -1,0 +1,28 @@
+POST http://localhost:3000/register HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "newuser",
+  "password": "securepassword123"
+}
+
+### LOGIN ###
+
+POST http://localhost:3000/login HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "newuser",
+  "password": "securepassword123"
+}
+
+### Place pixel ###
+POST http://localhost:3002/api/canvas/place-pixel HTTP/1.1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIyN2FkOTM3NS1kZjcxLTRhNGYtYTVmZC0wM2I3OWU1ZjM2ZGMiLCJ1c2VybmFtZSI6Im5ld3VzZXIiLCJpYXQiOjE3NTI5MjI4NTYsImV4cCI6MTc1MjkyNjQ1Nn0.AirOWr_YVQwIE7OhAWlgbotCf4ET-8EfhXw92dXpbJ0
+Content-Type: application/json
+
+{
+  "x": 101,
+  "y": 20,
+  "color": "#FF5733"
+}
