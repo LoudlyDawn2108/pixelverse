@@ -2,8 +2,8 @@ import { Router } from "express";
 import { Producer } from "kafkajs";
 import { authMiddleware, AuthenticatedRequest } from "./auth.middleware";
 import axios from "axios";
-import { type CanvasStateMap, type PixelData } from "./index";
-import { IMap } from "hazelcast-client";
+import { type CanvasStateMap } from "./index";
+import cors from "cors";
 
 // The topic we publish our events to
 const KAFKA_TOPIC = "pixel-placed-topic";

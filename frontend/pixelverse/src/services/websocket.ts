@@ -1,4 +1,4 @@
-import { io } from "socket.io-client";
+import io from "socket.io-client";
 import { useCanvasStore } from "../store/canvasStore";
 
 class WebSocketService {
@@ -15,7 +15,7 @@ class WebSocketService {
             reconnection: true,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
-            maxReconnectionAttempts: 5,
+            reconnectionAttempts: 5,
         });
 
         this.socket.on("connect", () => {
@@ -81,7 +81,7 @@ class WebSocketService {
         return this.isConnected && this.socket?.connected === true;
     }
 
-    getSocket(): Socket | null {
+    getSocket(): SocketIOClient.Socket | null {
         return this.socket;
     }
 }

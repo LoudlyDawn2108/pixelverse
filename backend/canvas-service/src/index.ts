@@ -3,6 +3,7 @@ import { Client as HazelcastClient } from "hazelcast-client";
 import { Kafka } from "kafkajs";
 import { canvasRouter } from "./canvas.routes";
 import { IMap } from "hazelcast-client";
+import cors from "cors";
 
 // --- 1. DEFINE CONSTANTS ---
 const PORT = 3002;
@@ -74,7 +75,7 @@ async function main() {
     const app = express();
     app.use(express.json());
     // Pass our connected clients to the routes
-    app.use("/api/canvas", canvasRouter(producer, canvasState));
+    app.use("/api/canvas", cors(), canvasRouter(producer, canvasState));
 
     // --- START SERVER ---
     app.listen(PORT, () => {

@@ -4,6 +4,7 @@ import { DataSource } from "typeorm";
 import { User } from "./entity/User";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import cors from "cors";
 
 // --- 1. DEFINE CONSTANTS ---
 const PORT = 3000;
@@ -28,6 +29,7 @@ const AppDataSource = new DataSource({
 // --- 3. CREATE AND CONFIGURE THE EXPRESS APP ---
 const app = express();
 app.use(express.json()); // Middleware to parse JSON request bodies
+app.use(cors()); // Enable CORS for all routes
 
 // --- 4. DEFINE API ENDPOINTS ---
 
